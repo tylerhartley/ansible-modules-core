@@ -70,6 +70,11 @@ options:
         To use the C(cron_file) parameter you must specify the C(user) as well.
     required: false
     default: null
+  cron_file:
+    description:
+      - If 'yes', use the system crontab file at /etc/crontab instead of an individual's crontab.
+    required: false
+    default: no
   backup:
     description:
       - If set, create a backup of the crontab before it is modified.
@@ -169,18 +174,23 @@ class CronTab(object):
     """
         CronTab object to write time based crontab file
 
-        user      - the user of the crontab (defaults to root)
-        cron_file - a cron file under /etc/cron.d
+        user       - the user of the crontab (defaults to root)
+        cron_file  - a cron file under /etc/cron.d
+        use_system - use the system crontab file at /etc/crontab
     """
-    def __init__(self, module, user=None, cron_file=None):
+    def __init__(self, module, user=None, cron_file=None, use_system=None):
         self.module    = module
         self.user      = user
         self.root      = (os.getuid() == 0)
         self.lines     = None
         self.ansible   = "#Ansible: "
 
-        if cron_file:
-            self.cron_file = '/etc/cron.d/%s' % cron_file
+        # raise CronTabError("HIHIHI %s"%use_system)
+        if use_system == 'yes':
+            self.cron_file = '/etc/crontab'
+        elif cron_file:
+            # self.cron_file = '/etc/cron.d/%s' % cron_file
+            self.cron_file = '/etc/%s' % cron_file
         else:
             self.cron_file = None
 
@@ -412,6 +422,7 @@ def main():
             user=dict(required=False),
             job=dict(required=False),
             cron_file=dict(required=False),
+            use_system=dict(default='no', choices=['no', 'yes']),
             state=dict(default='present', choices=['present', 'absent']),
             backup=dict(default=False, type='bool'),
             minute=dict(default='*'),
@@ -433,6 +444,7 @@ def main():
     user         = module.params['user']
     job          = module.params['job']
     cron_file    = module.params['cron_file']
+    use_system   = module.params['use_system']
     state        = module.params['state']
     backup       = module.params['backup']
     minute       = module.params['minute']
@@ -450,7 +462,7 @@ def main():
 
     # Ensure all files generated are only writable by the owning user.  Primarily relevant for the cron_file option.
     os.umask(022)
-    crontab = CronTab(module, user, cron_file)
+    crontab = CronTab(module, user, cron_file, use_system)
 
     module.debug('cron instantiated - name: "%s"' % name)
 
@@ -459,6 +471,9 @@ def main():
     if (special_time or reboot) and \
        (True in [(x != '*') for x in [minute, hour, day, month, weekday]]):
         module.fail_json(msg="You must specify time and date fields or special time.")
+
+    if use_system == 'yes' and cron_file:
+        module.fail_json(msg="You cannot specify a cron_file and use_system cron. Please remove one.")
 
     if cron_file and do_install:
         if not user:
